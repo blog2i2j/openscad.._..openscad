@@ -1,7 +1,8 @@
 #pragma once
 
-#include <glib.h>
+#include <memory>
 
+#include <glib.h>
 
 class str_utf8_wrapper
 {
@@ -21,7 +22,7 @@ private:
     glong u8len = LENGTH_UNKNOWN;
   };
   // private constructor for copying members
-  explicit str_utf8_wrapper(const shared_ptr<str_utf8_t>& str_in) : str_ptr(str_in) { }
+  explicit str_utf8_wrapper(const std::shared_ptr<str_utf8_t>& str_in) : str_ptr(str_in) { }
 
 public:
   class iterator
@@ -50,11 +51,18 @@ private:
 
   [[nodiscard]] iterator begin() const { return {*this}; }
   [[nodiscard]] iterator end() const { return {*this, true}; }
-  str_utf8_wrapper() : str_ptr(make_shared<str_utf8_t>()) { }
-  str_utf8_wrapper(const std::string& s) : str_ptr(make_shared<str_utf8_t>(s)) { }
-  str_utf8_wrapper(const char *cstr) : str_ptr(make_shared<str_utf8_t>(cstr)) { }
+  str_utf8_wrapper() : str_ptr(std::make_shared<str_utf8_t>()) { }
+  str_utf8_wrapper(const std::string& s) : str_ptr(std::make_shared<str_utf8_t>(s)) { }
+  str_utf8_wrapper(const char *cstr) : str_ptr(std::make_shared<str_utf8_t>(cstr)) { }
   // for enumerating single utf8 chars from iterator
-  str_utf8_wrapper(const char *cstr, size_t clen) : str_ptr(make_shared<str_utf8_t>(cstr, clen, 1)) { }
+  str_utf8_wrapper(const char *cstr, size_t clen) : str_ptr(std::make_shared<str_utf8_t>(cstr, clen, 1)) { }
+  str_utf8_wrapper(uint32_t unicode) {
+    char out[6] = " ";
+    if (unicode != 0 && g_unichar_validate(unicode)) {
+        g_unichar_to_utf8(unicode, out);
+    }
+    str_ptr = std::make_shared<str_utf8_t>(out);
+  }
   str_utf8_wrapper(const str_utf8_wrapper&) = delete; // never copy, move instead
   str_utf8_wrapper& operator=(const str_utf8_wrapper&) = delete; // never copy, move instead
   str_utf8_wrapper(str_utf8_wrapper&&) = default;
@@ -72,6 +80,20 @@ private:
   [[nodiscard]] const char *c_str() const { return this->str_ptr->u8str.c_str(); }
   [[nodiscard]] const std::string& toString() const { return this->str_ptr->u8str; }
   [[nodiscard]] size_t size() const { return this->str_ptr->u8str.size(); }
+  str_utf8_wrapper operator[](const size_t idx) const {
+    if (idx < this->size()) {
+      // Ensure character (not byte) index is inside the character/glyph array
+      if (glong(idx) < this->get_utf8_strlen()) {
+        gchar utf8_of_cp[6] = ""; //A buffer for a single unicode character to be copied into
+	auto ptr = g_utf8_offset_to_pointer(str_ptr->u8str.c_str(), idx);
+	if (ptr) {
+          g_utf8_strncpy(utf8_of_cp, ptr, 1);
+        }
+        return std::string(utf8_of_cp);
+      }
+    }
+    return {};
+  }
 
   [[nodiscard]] glong get_utf8_strlen() const {
     if (str_ptr->u8len == str_utf8_t::LENGTH_UNKNOWN) {
@@ -80,6 +102,14 @@ private:
     return str_ptr->u8len;
   }
 
+  [[nodiscard]] uint32_t get_utf8_char() const {
+    return g_utf8_get_char(str_ptr->u8str.c_str());
+  }
+
+  [[nodiscard]] bool utf8_validate() const {
+    return g_utf8_validate(str_ptr->u8str.c_str(), -1, nullptr);
+  }
+
 private:
-  shared_ptr<str_utf8_t> str_ptr;
+  std::shared_ptr<str_utf8_t> str_ptr;
 };
